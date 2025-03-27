@@ -3,6 +3,8 @@ import csv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # LinkedIn credentials
 LINKEDIN_EMAIL = "your_email@example.com"
@@ -31,33 +33,35 @@ def extract_saved_jobs(driver):
     driver.get("https://www.linkedin.com/my-items/saved-jobs/?cardType=SAVED")
     time.sleep(5)
 
-    # Find the main saved jobs section
     try:
-        job_section = driver.find_element(By.CLASS_NAME, "grid__col.grid__col--lg-12.mb6")
-        
-        # Find all <ul> elements within this section
-        ul_elements = job_section.find_elements(By.TAG_NAME, "ul")
-        
-        if len(ul_elements) < 2:
-            print("Could not find the second <ul> element.")
-            return
-        
-        # Get the second <ul> and extract all <li> elements
-        job_list_items = ul_elements[1].find_elements(By.TAG_NAME, "li")
+        job_list = driver.find_element(By.CLASS_NAME, "GvXnnMieLesgSiMjvOXypGYCDABjCBejdLw")
+        job_list_items = job_list.find_elements(By.TAG_NAME, "li")
         
         for job_item in job_list_items:
             try:
-                # Extract text content from the <li>
-                job_text = job_item.get_attribute("innerText").strip()
+                job_info = job_item.find_element(By.CLASS_NAME, "mb1").text.strip()
+                job_lines = [line.strip() for line in job_info.split("\n") if "Verified" not in line and "Actively Recruiting" not in line]
                 
-                # Remove "Verified" and trim trailing space if needed
-                job_lines = [line.strip() for line in job_text.split("\n") if "Verified" not in line]
-
-                # If job title exists and had "Verified" removed, trim trailing space
-                if job_lines and job_text.endswith("Verified"):
-                    job_lines[0] = job_lines[0].rstrip()
-
-                # Save job details to CSV
+                # Click dropdown button to reveal links
+                try:
+                    dropdown_button = job_item.find_element(By.XPATH, ".//button[contains(@aria-label, 'Click to take more actions on')]")
+                    driver.execute_script("arguments[0].click();", dropdown_button)
+                    time.sleep(3)  # Wait for dropdown to open
+                    
+                    # Wait for the Apply link to be visible
+                    apply_container = WebDriverWait(job_item, 5).until(
+                        EC.presence_of_element_located((By.XPATH, ".//div[starts-with(@id, 'ember')]/a"))
+                    )
+                    job_posting = apply_container.get_attribute("href")
+                    
+                    # Ensure only job title, company, and location are stored
+                    if len(job_lines) >= 3:
+                        job_lines = job_lines[:3] + [job_posting]
+                    
+                except Exception as e:
+                    print("Error extracting job links:", e)
+                    job_lines.append("")
+                
                 if job_lines:
                     save_job_to_csv(job_lines)
                     print(f"Saved job: {job_lines}")
@@ -65,7 +69,7 @@ def extract_saved_jobs(driver):
             except Exception as e:
                 print("Error extracting job:", e)
                 continue
-
+    
     except Exception as e:
         print("Error finding saved jobs section:", e)
 
